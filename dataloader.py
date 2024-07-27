@@ -47,14 +47,12 @@ class DNdataset(TorchDataset):
         self.target_transform = target_transform
         self.images, self.label = self._make_dataset()
         self.train = if_train
-        self.fovs = [test_fov]
-        
-        # if self.train:
-        #     fovs = list(range(1, 20+1))
-        #     fovs.remove(test_fov)
-        #     self.fovs = fovs
-        # else:
-        #     self.fovs = [test_fov]
+        if self.train:
+            fovs = list(range(1, 20+1))
+            fovs.remove(test_fov)
+            self.fovs = fovs
+        else:
+            self.fovs = [test_fov]
     
     def _make_dataset(self):
         """Scan directories and gather image paths."""
