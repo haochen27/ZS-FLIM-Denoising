@@ -2,19 +2,13 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.tensorboard import SummaryWriter
-from torch.utils.data import DataLoader
 from model import DNFLIM
-from dataloader import DNdataset, generate_data
 from torchvision import transforms
+from dataloader import img_loader
 
-def train_model(epochs, batch_size, lr):
-    data, labels = generate_data(num_samples=60000, img_size=(256, 256))
-    transform = transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Normalize((0.5,), (0.5,))
-    ])
-    train_dataset = DNdataset(data, labels, transform=transform)
-    train_loader = DataLoader(dataset=train_dataset, batch_size=batch_size, shuffle=True)
+def train_model(epochs, batch_size, lr, root, noise_levels, types):
+
+    train_loader = img_loader(root, batch_size, noise_levels, types)
 
     model = DNFLIM()
     criterion = nn.MSELoss()  # Assuming denoising task
