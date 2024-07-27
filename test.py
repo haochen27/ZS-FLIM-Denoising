@@ -4,7 +4,7 @@ import pandas as pd
 from tqdm import tqdm
 from model import N2N_Autoencoder
 from dataloader import img_loader
-from torchmetrics import PeakSignalNoiseRatio, StructuralSimilarityIndexMeasure
+from torchmetrics.image import PeakSignalNoiseRatio, StructuralSimilarityIndexMeasure
 
 import torch
 import torch.nn as nn
@@ -14,7 +14,7 @@ from model import N2N_Autoencoder
 from dataloader import img_loader
 from torchmetrics import PeakSignalNoiseRatio, StructuralSimilarityIndexMeasure
 
-def test_model(batch_size, root, noise_levels, types=None, pretrained_model='dnflim.pth'):
+def test_model(batch_size, root, noise_levels, types=None, pretrained_model='./model/dnflim.pth'):
     # Check for GPU
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     

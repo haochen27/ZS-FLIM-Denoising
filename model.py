@@ -21,18 +21,17 @@ class UNet_Shallow(nn.Module):
         super(UNet_Shallow, self).__init__()
         self.encoder = nn.Sequential(
             DoubleConv(in_channels, 64),
-            nn.MaxPool2d(2)
+            nn.MaxPool2d(2)  # Reduces spatial dimensions by half
         )
         self.decoder = nn.Sequential(
-            nn.ConvTranspose2d(64, 32, kernel_size=2, stride=2),
+            nn.ConvTranspose2d(64, 64, kernel_size=2, stride=2),  # Upsamples back to original size
             DoubleConv(64, 32)
         )
         self.final_conv = nn.Conv2d(32, out_channels, kernel_size=1)
         
     def forward(self, x):
-        enc = self.encoder(x)
-        dec = self.decoder[0](enc)
-        dec = self.decoder[1](torch.cat((dec, x), dim=1))
+        enc = self.encoder(x)  # Downsample and encode
+        dec = self.decoder(enc)  # Upsample and decode
         return self.final_conv(dec)
 
 class N2N_Autoencoder(nn.Module):
@@ -40,19 +39,19 @@ class N2N_Autoencoder(nn.Module):
         super(N2N_Autoencoder, self).__init__()
         self.encoder = nn.Sequential(
             DoubleConv(in_channels, 64),
-            nn.MaxPool2d(2),  # Downsample to 128x128
+            nn.MaxPool2d(2),  
             DoubleConv(64, 128),
-            nn.MaxPool2d(2),  # Downsample to 64x64
+            nn.MaxPool2d(2),  
             DoubleConv(128, 256),
-            nn.MaxPool2d(2),  # Downsample to 32x32
+            nn.MaxPool2d(2),  
             DoubleConv(256, 512)
         )
         self.decoder = nn.Sequential(
-            nn.ConvTranspose2d(512, 256, kernel_size=2, stride=2),  # Upsample to 64x64
+            nn.ConvTranspose2d(512, 256, kernel_size=2, stride=2),
             DoubleConv(256, 256),
-            nn.ConvTranspose2d(256, 128, kernel_size=2, stride=2),  # Upsample to 128x128
+            nn.ConvTranspose2d(256, 128, kernel_size=2, stride=2),  
             DoubleConv(128, 128),
-            nn.ConvTranspose2d(128, 64, kernel_size=2, stride=2),  # Upsample to 256x256
+            nn.ConvTranspose2d(128, 64, kernel_size=2, stride=2),  
             DoubleConv(64, 64),
         )
         self.final_conv = nn.Conv2d(64, out_channels, kernel_size=1)

@@ -4,6 +4,7 @@ from torchvision import transforms
 from PIL import Image
 import numpy as np
 import os
+import random
 
 def fluore_to_tensor(pic):
     if not isinstance(pic, Image.Image):
@@ -65,11 +66,16 @@ class DNdataset(TorchDataset):
                 for fov in self.fovs:
                     current_img_path = os.path.join(img_path, str(fov))
                     gt_img = os.path.join(gt_path, str(fov), 'avg50.png')
-                    #if self.train:
-                    for img_name in sorted(os.listdir(current_img_path))[:50]:
+                    if self.train:
+                        img_name  = random.choice(sorted(os.listdir(current_img_path))[:50])
                         images.append(os.path.join(current_img_path, img_name))
                         gt_images.append(gt_img)
                         print(f"Loaded image: {images[-1]}, GT: {gt_images[-1]}")
+                    else:
+                        for img_name in sorted(os.listdir(current_img_path))[:50]:
+                            images.append(os.path.join(current_img_path, img_name))
+                            gt_images.append(gt_img)
+                            print(f"Loaded image: {images[-1]}, GT: {gt_images[-1]}")
         return images, gt_images
 
 
@@ -95,6 +101,6 @@ def img_loader(root, batch_size, noise_levels, types=None, patch_size=256, test_
     ])
     print(types)
     dataset = DNdataset(root, noise_levels, types=types, test_fov=test_fov, transform=transform, target_transform=transform, if_train=train)
-    kwargs = {'num_workers': 4, 'pin_memory': True} if torch.cuda.is_available() else {}
+    kwargs = {'num_workers': 4, 'pin_memory': False} if torch.cuda.is_available() else {}
     data_loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True, drop_last=False, **kwargs)
     return data_loader
