@@ -63,19 +63,27 @@ class DNdataset(TorchDataset):
                 else:
                     img_path = os.path.join(img_path_root, 'avg'+str(noise_level))
                 gt_path = os.path.join(img_path_root, 'gt')
-                for fov in self.fovs:
-                    current_img_path = os.path.join(img_path, str(fov))
-                    gt_img = os.path.join(gt_path, str(fov), 'avg50.png')
-                    if self.train:
-                        img_name  = random.choice(sorted(os.listdir(current_img_path))[:50])
-                        images.append(os.path.join(current_img_path, img_name))
-                        gt_images.append(gt_img)
+                if type == 'test_mix':
+                    for img_name in sorted(os.listdir(img_path))[:48]:
+                        images.append(os.path.join(img_path, img_name))
+                    for gt_img in sorted(os.listdir(gt_path))[:48]:
+                        gt_images.append(os.path.join((gt_path), gt_img))
                         print(f"Loaded image: {images[-1]}, GT: {gt_images[-1]}")
-                    else:
-                        for img_name in sorted(os.listdir(current_img_path))[:50]:
+                    
+                else:
+                    for fov in self.fovs:
+                        current_img_path = os.path.join(img_path, str(fov))
+                        gt_img = os.path.join(gt_path, str(fov), 'avg50.png')
+                        if self.train:
+                            img_name  = random.choice(sorted(os.listdir(current_img_path))[:50])
                             images.append(os.path.join(current_img_path, img_name))
                             gt_images.append(gt_img)
                             print(f"Loaded image: {images[-1]}, GT: {gt_images[-1]}")
+                        else:
+                            for img_name in sorted(os.listdir(current_img_path))[:50]:
+                                images.append(os.path.join(current_img_path, img_name))
+                                gt_images.append(gt_img)
+                                print(f"Loaded image: {images[-1]}, GT: {gt_images[-1]}")
         return images, gt_images
 
 
