@@ -1,17 +1,16 @@
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
-from model import DNFLIM
+from model import N2N_Autoencoder,UNet_Shallow
 from dataloader import img_loader
 from torchvision import transforms
 
 def test_model(batch_size, root, noise_levels, types='Confocal_FISH', pretrained_model='dnflim.pth'):
     
-    
     test_loader = img_loader(root, batch_size, noise_levels, types, if_train=False)
 
 
-    model = DNFLIM()
+    model = N2N_Autoencoder()
     if pretrained_model:
         model.load_state_dict(torch.load(pretrained_model))
     criterion = nn.MSELoss()
