@@ -15,7 +15,7 @@ class DoubleConv(nn.Module):
         
     def forward(self, x):
         return self.double_conv(x)
-
+    
 class UNet_Shallow(nn.Module):
     def __init__(self, in_channels, out_channels):
         super(UNet_Shallow, self).__init__()
@@ -38,56 +38,44 @@ class UNet_Shallow(nn.Module):
 class N2N_Autoencoder(nn.Module):
     def __init__(self, in_channels, out_channels):
         super(N2N_Autoencoder, self).__init__()
-        # Encoder
         self.encoder = nn.Sequential(
             DoubleConv(in_channels, 64),
-            nn.MaxPool2d(2),
+            nn.MaxPool2d(2),  # Downsample to 128x128
             DoubleConv(64, 128),
-            nn.MaxPool2d(2),
+            nn.MaxPool2d(2),  # Downsample to 64x64
             DoubleConv(128, 256),
-            nn.MaxPool2d(2),
+            nn.MaxPool2d(2),  # Downsample to 32x32
             DoubleConv(256, 512)
         )
-        # Decoder
         self.decoder = nn.Sequential(
-            nn.ConvTranspose2d(512, 256, kernel_size=2, stride=2),
+            nn.ConvTranspose2d(512, 256, kernel_size=2, stride=2),  # Upsample to 64x64
             DoubleConv(256, 256),
-            nn.ConvTranspose2d(256, 128, kernel_size=2, stride=2),
+            nn.ConvTranspose2d(256, 128, kernel_size=2, stride=2),  # Upsample to 128x128
             DoubleConv(128, 128),
-            nn.ConvTranspose2d(128, 64, kernel_size=2, stride=2),
+            nn.ConvTranspose2d(128, 64, kernel_size=2, stride=2),  # Upsample to 256x256
             DoubleConv(64, 64),
-            nn.ConvTranspose2d(64, 32, kernel_size=2, stride=2)
         )
-        self.final_conv = nn.Conv2d(32, out_channels, kernel_size=1)
+        self.final_conv = nn.Conv2d(64, out_channels, kernel_size=1)
         
     def forward(self, x):
         # Encoder
-        enc1 = self.encoder[0](x)
-        enc2 = self.encoder[1](enc1)
-        enc3 = self.encoder[2](enc2)
-        bottleneck = self.encoder[3](enc3)
+        enc1 = self.encoder[0](x)  
+        enc2 = self.encoder[1](enc1)  
+        enc3 = self.encoder[2](enc2) 
+        enc4 = self.encoder[3](enc3)  
+        enc5 = self.encoder[4](enc4)  
+        enc6 = self.encoder[5](enc5)  
+        bottleneck = self.encoder[6](enc6)  
 
         # Decoder
-        dec1 = self.decoder[0](bottleneck)
-        dec2 = self.decoder[1](dec1)
-        dec3 = self.decoder[2](dec2)
-        dec4 = self.decoder[3](dec3)
-        dec5 = self.decoder[4](dec4)
+        dec1 = self.decoder[0](bottleneck)  
+        dec2 = self.decoder[1](dec1)  
+        dec3 = self.decoder[2](dec2)  
+        dec4 = self.decoder[3](dec3)  
+        dec5 = self.decoder[4](dec4)  
+        dec6 = self.decoder[5](dec5)
+        output = self.final_conv(dec6)  
 
-        return self.final_conv(dec5)
-
-class DNFLIM(nn.Module):
-    def __init__(self):
-        super(DNFLIM, self).__init__()
-        self.branch1 = UNet_Shallow(in_channels=1, out_channels=32)
-        self.branch2 = UNet_Shallow(in_channels=1, out_channels=32)
-        self.denoise_net = N2N_Autoencoder(in_channels=64, out_channels=1)
-        
-    def forward(self, x):
-        branch1_output = self.branch1(x)
-        branch2_output = self.branch2(x)
-        concatenated_output = torch.cat((branch1_output, branch2_output), dim=1)
-        denoised_output = self.denoise_net(concatenated_output)
-        return denoised_output
+        return output
 
 

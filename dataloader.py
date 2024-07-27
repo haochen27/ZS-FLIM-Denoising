@@ -6,10 +6,6 @@ import numpy as np
 import os
 
 def fluore_to_tensor(pic):
-    """Convert a ``PIL Image`` to tensor. Range stays the same.
-    Only output one channel, if RGB, convert to grayscale as well.
-    Currently data is 8 bit depth.
-    """
     if not isinstance(pic, Image.Image):
         raise TypeError('pic should be PIL Image. Got {}'.format(type(pic)))
 
@@ -22,7 +18,8 @@ def fluore_to_tensor(pic):
     else:
         raise TypeError('Unsupported image type {}'.format(pic.mode))
 
-    return img
+    return img.float()  
+
 
 def pil_loader(path):
     """Load an image."""
@@ -41,11 +38,6 @@ class DNdataset(TorchDataset):
             self.types = all_types
         else:      
             self.types = types
-        self.root = root
-        self.noise_levels = noise_levels
-        self.transform = transform
-        self.target_transform = target_transform
-        self.images, self.label = self._make_dataset()
         self.train = if_train
         if self.train:
             fovs = list(range(1, 20+1))
@@ -53,27 +45,33 @@ class DNdataset(TorchDataset):
             self.fovs = fovs
         else:
             self.fovs = [test_fov]
+        self.root = root
+        self.noise_levels = noise_levels
+        self.transform = transform
+        self.target_transform = target_transform
+        self.images, self.label = self._make_dataset()
     
     def _make_dataset(self):
-        """Scan directories and gather image paths."""
         images = []
         gt_images = []
-        for type in self.noise_levels:
-            img_path = os.path.join(self.root, str(type))
-            for noise_level in self.types:
-                if noise_level == 1:
-                    img_path = os.path.join(img_path, 'raw')
+        for type in self.types:
+            img_path_root = os.path.join(self.root, str(type))
+            for noise_level in self.noise_levels:
+                if noise_level == int(1):
+                    img_path = os.path.join(img_path_root, 'raw')
                 else:
-                    img_path = os.path.join(img_path, 'avg'+str(noise_level))
-                    gt_path = os.path.join(img_path, 'gt')
+                    img_path = os.path.join(img_path_root, 'avg'+str(noise_level))
+                gt_path = os.path.join(img_path_root, 'gt')
                 for fov in self.fovs:
-                    img_path = os.path.join(img_path, str(fov))
-                    gt_img = os.path.join(gt_path, str(fov),'avg50.png')
-                    if self.train:
-                        for img_name in sorted(os.listdir(img_path))[:50]:
-                            images.append(os.path.join(img_path, img_name))
-                            gt_images.append(gt_img)
-        return images,gt_images
+                    current_img_path = os.path.join(img_path, str(fov))
+                    gt_img = os.path.join(gt_path, str(fov), 'avg50.png')
+                    #if self.train:
+                    for img_name in sorted(os.listdir(current_img_path))[:50]:
+                        images.append(os.path.join(current_img_path, img_name))
+                        gt_images.append(gt_img)
+                        print(f"Loaded image: {images[-1]}, GT: {gt_images[-1]}")
+        return images, gt_images
+
 
     def __len__(self):
         return len(self.images)
@@ -86,16 +84,17 @@ class DNdataset(TorchDataset):
         if self.transform:
             img = self.transform(img)
             label = self.target_transform(label)
-        return img, label
+        return img, label, img_path
 
-def img_loader(root, batch_size, noise_levels, types=None, patch_size=256, test_fov=19, if_train=True):
+def img_loader(root, batch_size, noise_levels, types=None, patch_size=256, test_fov=19, train=True):
     """For N2N model, use all captures in each fov, randomly select 2 when loading."""
     transform = transforms.Compose([
         transforms.CenterCrop(patch_size),
         fluore_to_tensor,
         transforms.Normalize(mean=[0.5], std=[0.5])
     ])
-    dataset = DNdataset(root, noise_levels, types=types, test_fov=test_fov, transform=transform, target_transform=transform, if_train=if_train)
+    print(types)
+    dataset = DNdataset(root, noise_levels, types=types, test_fov=test_fov, transform=transform, target_transform=transform, if_train=train)
     kwargs = {'num_workers': 4, 'pin_memory': True} if torch.cuda.is_available() else {}
     data_loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True, drop_last=False, **kwargs)
     return data_loader
