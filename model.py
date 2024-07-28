@@ -16,23 +16,47 @@ class DoubleConv(nn.Module):
     def forward(self, x):
         return self.double_conv(x)
     
-class UNet_Shallow(nn.Module):
+class UNet_SharedEncoder(nn.Module):
     def __init__(self, in_channels, out_channels):
-        super(UNet_Shallow, self).__init__()
-        self.encoder = nn.Sequential(
-            DoubleConv(in_channels, 64),
-            nn.MaxPool2d(2)  # Reduces spatial dimensions by half
-        )
-        self.decoder = nn.Sequential(
-            nn.ConvTranspose2d(64, 64, kernel_size=2, stride=2),  # Upsamples back to original size
-            DoubleConv(64, 32)
-        )
-        self.final_conv = nn.Conv2d(32, out_channels, kernel_size=1)
+        super(UNet_SharedEncoder, self).__init__()
         
-    def forward(self, x):
-        enc = self.encoder(x)  # Downsample and encode
-        dec = self.decoder(enc)  # Upsample and decode
-        return self.final_conv(dec)
+        # Shared encoder
+        self.encoder = nn.Sequential(
+            DoubleConv(in_channels, 16), 
+            nn.MaxPool2d(2)  
+        )
+        
+        # Decoder for the first input
+        self.decoder1 = nn.Sequential(
+            nn.ConvTranspose2d(16, 16, kernel_size=2, stride=2),  # Upsamples to match input size
+            nn.Conv2d(16, 8, kernel_size=3, padding=1),
+            nn.BatchNorm2d(8),
+            nn.LeakyReLU(0.001, inplace=True),
+        )
+        self.final_conv1 = nn.Conv2d(8, out_channels, kernel_size=1)
+        
+        # Decoder for the second input
+        self.decoder2 = nn.Sequential(
+            nn.ConvTranspose2d(16, 16, kernel_size=2, stride=2),  # Upsamples to match input size
+            nn.Conv2d(16, 8, kernel_size=3, padding=1),
+            nn.BatchNorm2d(8),
+            nn.LeakyReLU(0.001, inplace=True),
+        )
+        self.final_conv2 = nn.Conv2d(8, out_channels, kernel_size=1)
+        
+    def forward(self, x1, x2):
+        # Shared encoding for both inputs
+        enc1 = self.encoder(x1)  # Downsample and encode
+        enc2 = self.encoder(x2)  # Downsample and encode (same encoder used)
+        
+        # Separate decoding for each input
+        dec1 = self.decoder1(enc1)
+        out1 = self.final_conv1(dec1)
+        
+        dec2 = self.decoder2(enc2)
+        out2 = self.final_conv2(dec2)
+        
+        return out1, out2
 
 class N2N_Autoencoder(nn.Module):
     def __init__(self, in_channels, out_channels):

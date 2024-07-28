@@ -6,7 +6,7 @@ from model import N2N_Autoencoder
 from dataloader import img_loader
 from torchmetrics.image import PeakSignalNoiseRatio, StructuralSimilarityIndexMeasure
 
-def test_model(batch_size, root, noise_levels, types=None, pretrained_model='./model/dnflim.pth'):
+def test_model(batch_size, root, noise_levels, types=None, pretrained_model='./model/dnflim.pth',FLIM_flag = True):
     # Check for GPU
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     

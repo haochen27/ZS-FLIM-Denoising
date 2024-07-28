@@ -2,13 +2,18 @@ import datetime
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import torch.nn.functional as F
 from torch.utils.tensorboard import SummaryWriter
 from torchmetrics.image import PeakSignalNoiseRatio, StructuralSimilarityIndexMeasure
-from model import N2N_Autoencoder
-from dataloader import img_loader
+from model import N2N_Autoencoder, UNet_SharedEncoder
+from dataloader import img_loader,img_loader_FLIM
 from tqdm import tqdm
+from PIL import Image
+import matplotlib.pyplot as plt
+import os
+import numpy as np
 
-def train_model(epochs, batch_size, lr, root, noise_levels, types):
+def train_model(epochs, batch_size, lr, root, noise_levels, types , alpha=0.8):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     train_loader = img_loader(root, batch_size, noise_levels, types)
     eval_loader = img_loader(root, batch_size, noise_levels, types, train=False)
@@ -39,7 +44,7 @@ def train_model(epochs, batch_size, lr, root, noise_levels, types):
             inputs, labels = inputs.to(device), labels.to(device)
             optimizer.zero_grad()
             outputs = model(inputs)
-            loss = criterion(outputs, labels)
+            loss = alpha * criterion(outputs, labels) + (1-alpha) * (calculate_entropy(abs(outputs -labels)))
             loss.backward()
             optimizer.step()
             running_loss += loss.item()
@@ -96,3 +101,74 @@ def train_model(epochs, batch_size, lr, root, noise_levels, types):
 
     torch.save(model.state_dict(), './model/dnflim.pth')
     writer.close()
+
+def ZS_FLIM_train_model(epochs, batch_size, lr, root, types, alpha=0.8):
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    train_loader = img_loader_FLIM(root, batch_size, types)
+
+    model_FLIM = UNet_SharedEncoder(in_channels=1, out_channels=1).to(device)
+    model_intensity = N2N_Autoencoder(in_channels=1, out_channels=1).to(device)
+    model_intensity.load_state_dict(torch.load('./model/best_dnflim.pth'))
+    model_intensity.eval()
+    optimizer = optim.Adam(model_FLIM.parameters(), lr=lr)
+    creterion = nn.MSELoss()
+    psnr_metric = PeakSignalNoiseRatio().to(device)
+    ssim_metric = StructuralSimilarityIndexMeasure(data_range=1.0).to(device)
+    timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+
+    for epoch in range(epochs):
+        model_FLIM.train()
+        running_loss = 0.0
+        running_psnr = 0.0
+        running_ssim = 0.0
+        num_batches = 0
+
+        for imageI, imageQ, imageA in tqdm(train_loader, desc=f"Epoch {epoch + 1}/{epochs}", unit="batch"):
+            imageI, imageQ, imageA = imageI.to(device), imageQ.to(device), imageA.to(device)
+            optimizer.zero_grad()
+
+            outputs_intensity = model_intensity(imageA)
+            output_Q,output_I = model_FLIM(imageQ,imageI)   
+            
+            
+            loss = alpha*creterion((output_Q**2+output_I**2), outputs_intensity*output_I)
+            loss.backward()
+            optimizer.step()
+
+            running_loss += loss.item()
+            num_batches += 1
+
+        avg_epoch_loss = running_loss / num_batches
+
+        print(f'Epoch [{epoch + 1}/{epochs}], Loss: {avg_epoch_loss:.4f}')
+
+    # Assuming `output_Q`, `imageQ`, `output_I`, `imageI`, `outputs_intensity`, and `imageA` are PyTorch tensors
+    # Extracting the first channel data from the tensors
+    final_output_image = output_Q.detach().cpu().numpy()[0][0]
+    final_input_image = imageQ.detach().cpu().numpy()[0][0]
+    final_output_image2 = output_I.detach().cpu().numpy()[0][0]
+    final_input_image2 = imageI.detach().cpu().numpy()[0][0]
+    final_output_image3 = outputs_intensity.detach().cpu().numpy()[0][0]
+    final_input_image3 = imageA.detach().cpu().numpy()[0][0]
+
+    # Define the output directory
+    if not os.path.exists(root):
+        os.makedirs(root)
+
+    # Save images as .npy files to retain the raw data
+    np.save(os.path.join(root, f'Qoutput_epoch_{epochs}.npy'), final_output_image)
+    np.save(os.path.join(root, f'Qinput_epoch_{epochs}.npy'), final_input_image)
+    np.save(os.path.join(root, f'Ioutput_epoch_{epochs}.npy'), final_output_image2)
+    np.save(os.path.join(root, f'Iinput_epoch_{epochs}.npy'), final_input_image2)
+    np.save(os.path.join(root, f'Aoutput_epoch_{epochs}.npy'), final_output_image3)
+    np.save(os.path.join(root, f'Ainput_epoch_{epochs}.npy'), final_input_image3)
+
+def calculate_entropy(image):
+    """Calculate the entropy of a batch of images"""
+    batch_size, _, _, _ = image.size()
+    hist = torch.histc(image, bins=256, min=0, max=1)
+    hist = hist / torch.sum(hist)  # Normalize histogram
+    hist = hist + 1e-6  # To avoid log(0)
+    entropy = -torch.sum(hist * torch.log(hist))
+    return entropy / batch_size
