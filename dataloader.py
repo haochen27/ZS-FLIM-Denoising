@@ -174,7 +174,7 @@ def img_loader(root, batch_size, noise_levels, types=None, patch_size=256, test_
     data_loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True, drop_last=False, **kwargs)
     return data_loader
 
-def img_loader_FLIM(root, batch_size, types=None, patch_size=256, num_augmentations=10):
+def img_loader_FLIM(root, batch_size, types=None, patch_size=256, num_augmentations=50):
     transform = transforms.Compose([
         fluore_to_tensor
     ])

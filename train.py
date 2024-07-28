@@ -102,10 +102,10 @@ def train_model(epochs, batch_size, lr, root, noise_levels, types , alpha=0.8):
     torch.save(model.state_dict(), './model/dnflim.pth')
     writer.close()
 
-def ZS_FLIM_train_model(epochs, batch_size, lr, root, types, alpha=0.8):
+def ZS_FLIM_train_model(epochs, batch_size, lr, root, types, alpha=0.8,num_augmentations=50):
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    train_loader = img_loader_FLIM(root, batch_size, types)
+    train_loader = img_loader_FLIM(root, batch_size, types, num_augmentations)
 
     model_FLIM = UNet_SharedEncoder(in_channels=1, out_channels=1).to(device)
     model_intensity = N2N_Autoencoder(in_channels=1, out_channels=1).to(device)

@@ -22,5 +22,5 @@ if __name__ == '__main__':
     if args.test:
         test_model(batch_size=args.batch_size, root=args.root, noise_levels=args.noise_levels, types=args.types, pretrained_model="./model/dnflim.pth")
     if args.FLIM:
-        ZS_FLIM_train_model(epochs=args.epochs, batch_size=1, lr=args.lr, root=args.root, types=args.types, alpha=args.alpha)
+        ZS_FLIM_train_model(epochs=args.epochs, batch_size=1, lr=args.lr, root=args.root, types=args.types, alpha=args.alpha,num_augmentations = 50)
 
