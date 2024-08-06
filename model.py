@@ -20,13 +20,16 @@ class UNet_SharedEncoder(nn.Module):
     def __init__(self, in_channels, out_channels):
         super(UNet_SharedEncoder, self).__init__()
         
-        # Shared encoder
-        self.encoder = nn.Sequential(
+        self.encoder1 = nn.Sequential(
             DoubleConv(in_channels, 16), 
-            nn.MaxPool2d(2)  
+            nn.MaxPool2d(2)
         )
         
-        # Decoder for the first input
+        # Encoder for the second input
+        self.encoder2 = nn.Sequential(
+            DoubleConv(in_channels, 16), 
+            nn.MaxPool2d(2)
+        )
         self.decoder1 = nn.Sequential(
             nn.ConvTranspose2d(16, 16, kernel_size=2, stride=2),  # Upsamples to match input size
             nn.Conv2d(16, 8, kernel_size=3, padding=1),
@@ -44,10 +47,22 @@ class UNet_SharedEncoder(nn.Module):
         )
         self.final_conv2 = nn.Conv2d(8, out_channels, kernel_size=1)
         
+        # Decoder for the concatenated features of enc1 and enc2
+        self.decoder3 = nn.Sequential(
+            nn.ConvTranspose2d(32, 32, kernel_size=2, stride=2),  # Upsamples to match input size
+            nn.Conv2d(32, 16, kernel_size=3, padding=1),
+            nn.BatchNorm2d(16),
+            nn.LeakyReLU(0.001, inplace=True),
+            nn.Conv2d(16, 8, kernel_size=3, padding=1),
+            nn.BatchNorm2d(8),
+            nn.LeakyReLU(0.001, inplace=True),
+        )
+        self.final_conv3 = nn.Conv2d(8, out_channels, kernel_size=1)
+
     def forward(self, x1, x2):
         # Shared encoding for both inputs
-        enc1 = self.encoder(x1)  # Downsample and encode
-        enc2 = self.encoder(x2)  # Downsample and encode (same encoder used)
+        enc1 = self.encoder1(x1)  # Downsample and encode
+        enc2 = self.encoder2(x2)  # Downsample and encode (same encoder used)
         
         # Separate decoding for each input
         dec1 = self.decoder1(enc1)
@@ -56,7 +71,12 @@ class UNet_SharedEncoder(nn.Module):
         dec2 = self.decoder2(enc2)
         out2 = self.final_conv2(dec2)
         
-        return out1, out2
+        # Concatenate encoded features and decode
+        concat_features = torch.cat((enc1, enc2), dim=1)  # Concatenate along channel dimension
+        dec3 = self.decoder3(concat_features)
+        out3 = self.final_conv3(dec3)
+        
+        return out1, out2, out3
 
 class N2N_Autoencoder(nn.Module):
     def __init__(self, in_channels, out_channels):

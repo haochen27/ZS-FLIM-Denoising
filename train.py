@@ -102,10 +102,10 @@ def train_model(epochs, batch_size, lr, root, noise_levels, types , alpha=0.8):
     torch.save(model.state_dict(), './model/dnflim.pth')
     writer.close()
 
-def ZS_FLIM_train_model(epochs, batch_size, lr, root, types, alpha=0.8,num_augmentations=50):
+def ZS_FLIM_train_model(epochs, batch_size, lr, root, types, num_augmentations,alpha=0.8):
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    train_loader = img_loader_FLIM(root, batch_size, types, num_augmentations)
+    train_loader = img_loader_FLIM(root, batch_size, num_augmentations, types)
 
     model_FLIM = UNet_SharedEncoder(in_channels=1, out_channels=1).to(device)
     model_intensity = N2N_Autoencoder(in_channels=1, out_channels=1).to(device)
@@ -116,6 +116,8 @@ def ZS_FLIM_train_model(epochs, batch_size, lr, root, types, alpha=0.8,num_augme
     psnr_metric = PeakSignalNoiseRatio().to(device)
     ssim_metric = StructuralSimilarityIndexMeasure(data_range=1.0).to(device)
     timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    prev_loss = None
+    unstable_epochs = 0
 
     for epoch in range(epochs):
         model_FLIM.train()
@@ -129,10 +131,11 @@ def ZS_FLIM_train_model(epochs, batch_size, lr, root, types, alpha=0.8,num_augme
             optimizer.zero_grad()
 
             outputs_intensity = model_intensity(imageA)
-            output_Q,output_I = model_FLIM(imageQ,imageI)   
+            output_Q,output_I,output_A = model_FLIM(imageQ,imageI)   
             
             
-            loss = alpha*creterion((output_Q**2+output_I**2), outputs_intensity*output_I)
+            #loss = alpha*creterion(output_Q**2+output_I**2, outputs_intensity*output_I) + (1-ssim_metric(output_Q, imageQ) -ssim_metric(output_I, imageI))
+            loss = alpha*creterion(output_A,outputs_intensity) + creterion(output_Q, imageQ) + creterion(output_I, imageI)
             loss.backward()
             optimizer.step()
 
@@ -140,6 +143,17 @@ def ZS_FLIM_train_model(epochs, batch_size, lr, root, types, alpha=0.8,num_augme
             num_batches += 1
 
         avg_epoch_loss = running_loss / num_batches
+
+        if prev_loss is not None:
+            loss_change = (avg_epoch_loss - prev_loss) / abs(prev_loss)
+            if loss_change < 0.15 and loss_change > -1:
+                unstable_epochs += 1
+                if unstable_epochs >= 10:
+                    for param_group in optimizer.param_groups:
+                        param_group['lr'] *= 0.2
+                    print(f"Reduced learning rate to {optimizer.param_groups[0]['lr']}")
+                    unstable_epochs = 0
+        prev_loss = avg_epoch_loss
 
         print(f'Epoch [{epoch + 1}/{epochs}], Loss: {avg_epoch_loss:.4f}')
 
@@ -149,7 +163,7 @@ def ZS_FLIM_train_model(epochs, batch_size, lr, root, types, alpha=0.8,num_augme
     final_input_image = imageQ.detach().cpu().numpy()[0][0]
     final_output_image2 = output_I.detach().cpu().numpy()[0][0]
     final_input_image2 = imageI.detach().cpu().numpy()[0][0]
-    final_output_image3 = outputs_intensity.detach().cpu().numpy()[0][0]
+    final_output_image3 = output_A.detach().cpu().numpy()[0][0]
     final_input_image3 = imageA.detach().cpu().numpy()[0][0]
 
     # Define the output directory
@@ -157,12 +171,12 @@ def ZS_FLIM_train_model(epochs, batch_size, lr, root, types, alpha=0.8,num_augme
         os.makedirs(root)
 
     # Save images as .npy files to retain the raw data
-    np.save(os.path.join(root, f'Qoutput_epoch_{epochs}.npy'), final_output_image)
-    np.save(os.path.join(root, f'Qinput_epoch_{epochs}.npy'), final_input_image)
-    np.save(os.path.join(root, f'Ioutput_epoch_{epochs}.npy'), final_output_image2)
-    np.save(os.path.join(root, f'Iinput_epoch_{epochs}.npy'), final_input_image2)
-    np.save(os.path.join(root, f'Aoutput_epoch_{epochs}.npy'), final_output_image3)
-    np.save(os.path.join(root, f'Ainput_epoch_{epochs}.npy'), final_input_image3)
+    np.save(os.path.join(root, f'Qoutput.npy'), final_output_image)
+    np.save(os.path.join(root, f'Qinput.npy'), final_input_image)
+    np.save(os.path.join(root, f'Ioutput.npy'), final_output_image2)
+    np.save(os.path.join(root, f'Iinput.npy'), final_input_image2)
+    np.save(os.path.join(root, f'Aoutput.npy'), final_output_image3)
+    np.save(os.path.join(root, f'Ainput.npy'), final_input_image3)
 
 def calculate_entropy(image):
     """Calculate the entropy of a batch of images"""

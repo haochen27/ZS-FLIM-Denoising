@@ -14,7 +14,7 @@ if __name__ == '__main__':
     parser.add_argument('--test', action='store_true', help='Trigger testing')
     parser.add_argument('--pretrained_model', type=str, default='./model/dnflim.pth', help='Pretrained model to test')
     parser.add_argument('--FLIM', action='store_true', help='Zero shot training for FLIM')
-    parser.add_argument('--alpha', type=float, default=0.8, help='Alpha value for loss function')
+    parser.add_argument('--alpha', type=float, default=1e-3, help='Alpha value for loss function')
     args = parser.parse_args()
 
     if args.train:
@@ -22,5 +22,5 @@ if __name__ == '__main__':
     if args.test:
         test_model(batch_size=args.batch_size, root=args.root, noise_levels=args.noise_levels, types=args.types, pretrained_model="./model/dnflim.pth")
     if args.FLIM:
-        ZS_FLIM_train_model(epochs=args.epochs, batch_size=1, lr=args.lr, root=args.root, types=args.types, alpha=args.alpha,num_augmentations = 50)
+        ZS_FLIM_train_model(epochs=args.epochs, batch_size=1, lr=args.lr, root=args.root, types=args.types, num_augmentations =1,alpha=args.alpha)
 

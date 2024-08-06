@@ -97,7 +97,7 @@ class DNdataset(TorchDataset):
         return img, label, img_path
 
 class FLIM_Dataset(TorchDataset):
-    def __init__(self, root, types=None, transform=None, crop_size=256, num_augmentations=50):
+    def __init__(self, root, num_augmentations, types=None, transform=None, crop_size=256):
         super(FLIM_Dataset, self).__init__()
         self.types = types if types else ['BPAE_Sample1']
         self.transform = transform
@@ -174,7 +174,7 @@ def img_loader(root, batch_size, noise_levels, types=None, patch_size=256, test_
     data_loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True, drop_last=False, **kwargs)
     return data_loader
 
-def img_loader_FLIM(root, batch_size, types=None, patch_size=256, num_augmentations=50):
+def img_loader_FLIM(root, batch_size, num_augmentations, types=None):
     transform = transforms.Compose([
         fluore_to_tensor
     ])
