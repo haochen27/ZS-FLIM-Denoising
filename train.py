@@ -5,7 +5,7 @@ import torch.optim as optim
 import torch.nn.functional as F
 from torch.utils.tensorboard import SummaryWriter
 from torchmetrics.image import PeakSignalNoiseRatio, StructuralSimilarityIndexMeasure
-from model import N2N_Autoencoder, UNet_SharedEncoder
+from model import N2V_Unet, UNet_SharedEncoder, FrequencyDomainLoss
 from dataloader import img_loader,img_loader_FLIM
 from tqdm import tqdm
 from PIL import Image
@@ -13,13 +13,12 @@ import matplotlib.pyplot as plt
 import os
 import numpy as np
 
-def train_model(epochs, batch_size, lr, root, noise_levels, types , alpha=0.8):
+def train_model(epochs, batch_size, lr, root, noise_levels, types):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     train_loader = img_loader(root, batch_size, noise_levels, types)
     eval_loader = img_loader(root, batch_size, noise_levels, types, train=False)
 
-    model = N2N_Autoencoder(in_channels=1, out_channels=1).to(device)
-    model.load_state_dict(torch.load('./model/best_dnflim.pth'))
+    model = N2V_Unet(in_channels=1, out_channels=1).to(device)
     criterion = nn.MSELoss()
     optimizer = optim.Adam(model.parameters(), lr=lr)
 
@@ -44,7 +43,14 @@ def train_model(epochs, batch_size, lr, root, noise_levels, types , alpha=0.8):
             inputs, labels = inputs.to(device), labels.to(device)
             optimizer.zero_grad()
             outputs = model(inputs)
-            loss = alpha * criterion(outputs, labels) + (1-alpha) * (calculate_entropy(abs(outputs -labels)))
+            
+            # Noise2Void Loss Function
+            mask = (torch.rand_like(inputs) > 0.95).float()
+            masked_input = inputs * (1 - mask)
+            masked_output = outputs * mask
+            n2v_loss = nn.MSELoss()(masked_output, masked_input)
+            loss = n2v_loss
+            
             loss.backward()
             optimizer.step()
             running_loss += loss.item()
@@ -102,17 +108,19 @@ def train_model(epochs, batch_size, lr, root, noise_levels, types , alpha=0.8):
     torch.save(model.state_dict(), './model/dnflim.pth')
     writer.close()
 
+
 def ZS_FLIM_train_model(epochs, batch_size, lr, root, types, num_augmentations,alpha=0.8):
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     train_loader = img_loader_FLIM(root, batch_size, num_augmentations, types)
 
     model_FLIM = UNet_SharedEncoder(in_channels=1, out_channels=1).to(device)
-    model_intensity = N2N_Autoencoder(in_channels=1, out_channels=1).to(device)
+    model_intensity = N2V_Unet(in_channels=1, out_channels=1).to(device)
     model_intensity.load_state_dict(torch.load('./model/best_dnflim.pth'))
     model_intensity.eval()
     optimizer = optim.Adam(model_FLIM.parameters(), lr=lr)
     creterion = nn.MSELoss()
+    loss_fd = FrequencyDomainLoss(mask_size=20).to(device)
     psnr_metric = PeakSignalNoiseRatio().to(device)
     ssim_metric = StructuralSimilarityIndexMeasure(data_range=1.0).to(device)
     timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -135,7 +143,7 @@ def ZS_FLIM_train_model(epochs, batch_size, lr, root, types, num_augmentations,a
             
             
             #loss = alpha*creterion(output_Q**2+output_I**2, outputs_intensity*output_I) + (1-ssim_metric(output_Q, imageQ) -ssim_metric(output_I, imageI))
-            loss = alpha*creterion(output_A,outputs_intensity) + creterion(output_Q, imageQ) + creterion(output_I, imageI)
+            loss = alpha*creterion(output_A,outputs_intensity) + loss_fd(output_Q, imageQ) + loss_fd(output_I, imageI)
             loss.backward()
             optimizer.step()
 

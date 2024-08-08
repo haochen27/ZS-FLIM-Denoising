@@ -5,6 +5,7 @@ import torchvision.transforms.functional as TF
 from PIL import Image
 import numpy as np
 import os
+import random
 
 
 def fluore_to_tensor(pic):

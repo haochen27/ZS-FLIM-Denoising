@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import pandas as pd
 from tqdm import tqdm
-from model import N2N_Autoencoder
+from model import N2V_Unet
 from dataloader import img_loader
 from torchmetrics.image import PeakSignalNoiseRatio, StructuralSimilarityIndexMeasure
 
@@ -14,7 +14,7 @@ def test_model(batch_size, root, noise_levels, types=None, pretrained_model='./m
     test_loader = img_loader(root, batch_size, noise_levels, types, train=False)
 
     # Load the model and move it to the GPU if available
-    model = N2N_Autoencoder(in_channels=1, out_channels=1).to(device)
+    model = N2V_Unet(in_channels=1, out_channels=1).to(device)
     if pretrained_model:
         model.load_state_dict(torch.load(pretrained_model))
     criterion = nn.MSELoss()
