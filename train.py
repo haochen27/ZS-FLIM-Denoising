@@ -4,8 +4,8 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 from torch.utils.tensorboard import SummaryWriter
-from torchmetrics.image import PeakSignalNoiseRatio, StructuralSimilarityIndexMeasure
-from model import N2V_Unet, UNet_SharedEncoder, FrequencyDomainLoss
+from torchmetrics.image import PeakSignalNoiseRatio, StructuralSimilarityIndexMeasure,TotalVariation
+from model import N2V_Unet, UNet_SharedEncoder
 from dataloader import img_loader,img_loader_FLIM
 from tqdm import tqdm
 from PIL import Image
@@ -19,6 +19,7 @@ def train_model(epochs, batch_size, lr, root, noise_levels, types):
     eval_loader = img_loader(root, batch_size, noise_levels, types, train=False)
 
     model = N2V_Unet(in_channels=1, out_channels=1).to(device)
+    #model.load_state_dict(torch.load('./model/best_dnflim.pth'))
     criterion = nn.MSELoss()
     optimizer = optim.Adam(model.parameters(), lr=lr)
 
@@ -29,7 +30,6 @@ def train_model(epochs, batch_size, lr, root, noise_levels, types):
     ssim_metric = StructuralSimilarityIndexMeasure().to(device)
 
     best_eval_loss = float('inf')
-    prev_loss = None
     unstable_epochs = 0
 
     for epoch in range(epochs):
@@ -44,12 +44,12 @@ def train_model(epochs, batch_size, lr, root, noise_levels, types):
             optimizer.zero_grad()
             outputs = model(inputs)
             
-            # Noise2Void Loss Function
+            # Noise2Void Training
             mask = (torch.rand_like(inputs) > 0.95).float()
             masked_input = inputs * (1 - mask)
             masked_output = outputs * mask
-            n2v_loss = nn.MSELoss()(masked_output, masked_input)
-            loss = n2v_loss
+            n2v_loss = criterion(masked_output, masked_input)
+            loss = criterion(outputs, labels)
             
             loss.backward()
             optimizer.step()
@@ -66,16 +66,6 @@ def train_model(epochs, batch_size, lr, root, noise_levels, types):
         writer.add_scalar('epoch_ssim', avg_epoch_ssim, epoch)
         print(f'Epoch [{epoch + 1}/{epochs}], Loss: {avg_epoch_loss:.4f}, PSNR: {avg_epoch_psnr:.4f}, SSIM: {avg_epoch_ssim:.4f}')
 
-        if prev_loss is not None:
-            loss_change = (avg_epoch_loss - prev_loss) / abs(prev_loss)
-            if loss_change < 0.15 and loss_change > -1:
-                unstable_epochs += 1
-                if unstable_epochs >= 3:
-                    for param_group in optimizer.param_groups:
-                        param_group['lr'] *= 0.2
-                    print(f"Reduced learning rate to {optimizer.param_groups[0]['lr']}")
-                    unstable_epochs = 0
-        prev_loss = avg_epoch_loss
 
         model.eval()
         eval_loss = 0.0
@@ -120,11 +110,9 @@ def ZS_FLIM_train_model(epochs, batch_size, lr, root, types, num_augmentations,a
     model_intensity.eval()
     optimizer = optim.Adam(model_FLIM.parameters(), lr=lr)
     creterion = nn.MSELoss()
-    loss_fd = FrequencyDomainLoss(mask_size=20).to(device)
+    tv_loss= TotalVariation().to(device)
     psnr_metric = PeakSignalNoiseRatio().to(device)
     ssim_metric = StructuralSimilarityIndexMeasure(data_range=1.0).to(device)
-    timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-    prev_loss = None
     unstable_epochs = 0
 
     for epoch in range(epochs):
@@ -133,7 +121,7 @@ def ZS_FLIM_train_model(epochs, batch_size, lr, root, types, num_augmentations,a
         running_psnr = 0.0
         running_ssim = 0.0
         num_batches = 0
-
+        content_loss_scale = 1
         for imageI, imageQ, imageA in tqdm(train_loader, desc=f"Epoch {epoch + 1}/{epochs}", unit="batch"):
             imageI, imageQ, imageA = imageI.to(device), imageQ.to(device), imageA.to(device)
             optimizer.zero_grad()
@@ -141,10 +129,12 @@ def ZS_FLIM_train_model(epochs, batch_size, lr, root, types, num_augmentations,a
             outputs_intensity = model_intensity(imageA)
             output_Q,output_I,output_A = model_FLIM(imageQ,imageI)   
             
-            
-            #loss = alpha*creterion(output_Q**2+output_I**2, outputs_intensity*output_I) + (1-ssim_metric(output_Q, imageQ) -ssim_metric(output_I, imageI))
-            loss = alpha*creterion(output_A,outputs_intensity) + loss_fd(output_Q, imageQ) + loss_fd(output_I, imageI)
-            loss.backward()
+            ssim_loss = (2-ssim_metric(output_Q, outputs_intensity) -ssim_metric(output_I, outputs_intensity))
+            mse_loss = creterion(output_A,outputs_intensity)
+            tv_loss_value = tv_loss(output_I)+tv_loss(output_Q)
+            content_loss = creterion(output_Q, imageQ) + creterion(output_I, imageI)
+            loss =  alpha*content_loss_scale*content_loss + alpha*1e-4*ssim_loss + alpha*0.5e-6*tv_loss_value 
+            loss.backward() 
             optimizer.step()
 
             running_loss += loss.item()
@@ -152,45 +142,30 @@ def ZS_FLIM_train_model(epochs, batch_size, lr, root, types, num_augmentations,a
 
         avg_epoch_loss = running_loss / num_batches
 
-        if prev_loss is not None:
-            loss_change = (avg_epoch_loss - prev_loss) / abs(prev_loss)
-            if loss_change < 0.15 and loss_change > -1:
-                unstable_epochs += 1
-                if unstable_epochs >= 10:
-                    for param_group in optimizer.param_groups:
-                        param_group['lr'] *= 0.2
-                    print(f"Reduced learning rate to {optimizer.param_groups[0]['lr']}")
-                    unstable_epochs = 0
-        prev_loss = avg_epoch_loss
-
         print(f'Epoch [{epoch + 1}/{epochs}], Loss: {avg_epoch_loss:.4f}')
+            # Assuming `output_Q`, `imageQ`, `output_I`, `imageI`, `outputs_intensity`, and `imageA` are PyTorch tensors
+        # Extracting the first channel data from the tensors
 
-    # Assuming `output_Q`, `imageQ`, `output_I`, `imageI`, `outputs_intensity`, and `imageA` are PyTorch tensors
-    # Extracting the first channel data from the tensors
-    final_output_image = output_Q.detach().cpu().numpy()[0][0]
-    final_input_image = imageQ.detach().cpu().numpy()[0][0]
-    final_output_image2 = output_I.detach().cpu().numpy()[0][0]
-    final_input_image2 = imageI.detach().cpu().numpy()[0][0]
-    final_output_image3 = output_A.detach().cpu().numpy()[0][0]
-    final_input_image3 = imageA.detach().cpu().numpy()[0][0]
+        if epoch % 100 == 0:
+            final_output_image = output_Q.detach().cpu().numpy()[0][0]
+            final_input_image = imageQ.detach().cpu().numpy()[0][0]
+            final_output_image2 = output_I.detach().cpu().numpy()[0][0]
+            final_input_image2 = imageI.detach().cpu().numpy()[0][0]
+            final_output_image3 = output_A.detach().cpu().numpy()[0][0]
+            final_input_image3 = imageA.detach().cpu().numpy()[0][0]
+            outputs_intensity = outputs_intensity.detach().cpu().numpy()[0][0]
 
-    # Define the output directory
-    if not os.path.exists(root):
-        os.makedirs(root)
+            # Define the output directory
+            if not os.path.exists(root):
+                os.makedirs(root)
 
-    # Save images as .npy files to retain the raw data
-    np.save(os.path.join(root, f'Qoutput.npy'), final_output_image)
-    np.save(os.path.join(root, f'Qinput.npy'), final_input_image)
-    np.save(os.path.join(root, f'Ioutput.npy'), final_output_image2)
-    np.save(os.path.join(root, f'Iinput.npy'), final_input_image2)
-    np.save(os.path.join(root, f'Aoutput.npy'), final_output_image3)
-    np.save(os.path.join(root, f'Ainput.npy'), final_input_image3)
+            # Save images as .npy files to retain the raw data
+            np.save(os.path.join(root, f'Qoutput.npy'), final_output_image)
+            np.save(os.path.join(root, f'Qinput.npy'), final_input_image)
+            np.save(os.path.join(root, f'Ioutput.npy'), final_output_image2)
+            np.save(os.path.join(root, f'Iinput.npy'), final_input_image2)
+            np.save(os.path.join(root, f'Aoutput.npy'), final_output_image3)
+            np.save(os.path.join(root, f'Ainput.npy'), final_input_image3)
+            np.save(os.path.join(root, f'intensityoutput.npy'), outputs_intensity)
 
-def calculate_entropy(image):
-    """Calculate the entropy of a batch of images"""
-    batch_size, _, _, _ = image.size()
-    hist = torch.histc(image, bins=256, min=0, max=1)
-    hist = hist / torch.sum(hist)  # Normalize histogram
-    hist = hist + 1e-6  # To avoid log(0)
-    entropy = -torch.sum(hist * torch.log(hist))
-    return entropy / batch_size
+    

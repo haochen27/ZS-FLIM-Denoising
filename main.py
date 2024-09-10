@@ -18,9 +18,9 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     if args.train:
-        train_model(root=args.root, noise_levels=args.noise_levels, types=args.types, epochs=args.epochs, batch_size=args.batch_size, lr=args.lr, alpha=args.alpha)
+        train_model(root=args.root, noise_levels=args.noise_levels, types=args.types, epochs=args.epochs, batch_size=args.batch_size, lr=args.lr)
     if args.test:
         test_model(batch_size=args.batch_size, root=args.root, noise_levels=args.noise_levels, types=args.types, pretrained_model="./model/dnflim.pth")
     if args.FLIM:
-        ZS_FLIM_train_model(epochs=args.epochs, batch_size=1, lr=args.lr, root=args.root, types=args.types, num_augmentations =1,alpha=args.alpha)
+        ZS_FLIM_train_model(epochs=args.epochs, batch_size=1, lr=args.lr, root=args.root, types=args.types, num_augmentations = 1,alpha=args.alpha)
 
