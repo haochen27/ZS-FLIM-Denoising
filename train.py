@@ -12,6 +12,8 @@ from PIL import Image
 import matplotlib.pyplot as plt
 import os
 import numpy as np
+from deconv import rl_deconvolution
+import time
 
 def train_model(epochs, batch_size, lr, root, noise_levels, types):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -116,6 +118,9 @@ def ZS_FLIM_train_model(epochs, batch_size, lr, root, types, num_augmentations,a
     unstable_epochs = 0
 
     for epoch in range(epochs):
+        if epoch % 100 ==0:
+            start_time = time.time()
+
         model_FLIM.train()
         running_loss = 0.0
         running_psnr = 0.0
@@ -127,7 +132,9 @@ def ZS_FLIM_train_model(epochs, batch_size, lr, root, types, num_augmentations,a
             optimizer.zero_grad()
 
             outputs_intensity = model_intensity(imageA)
-            output_Q,output_I,output_A = model_FLIM(imageQ,imageI)   
+            output_Q,output_I,output_A = model_FLIM(imageQ,imageI)
+            #deconv_intensity = rl_deconvolution(imageA)
+            #outputs_intensity = deconv_intensity
             
             ssim_loss = (2-ssim_metric(output_Q, outputs_intensity) -ssim_metric(output_I, outputs_intensity))
             mse_loss = creterion(output_A,outputs_intensity)
@@ -145,6 +152,11 @@ def ZS_FLIM_train_model(epochs, batch_size, lr, root, types, num_augmentations,a
         print(f'Epoch [{epoch + 1}/{epochs}], Loss: {avg_epoch_loss:.4f}')
             # Assuming `output_Q`, `imageQ`, `output_I`, `imageI`, `outputs_intensity`, and `imageA` are PyTorch tensors
         # Extracting the first channel data from the tensors
+
+        if epoch % 100 == 99:  # At the end of every 100th epoch
+            end_time = time.time()  # Stop timer
+            elapsed_time = end_time - start_time  # Calculate time taken for 100 epochs
+            print(f"Time taken for 100 epochs (Epoch {epoch - 98} to {epoch + 1}): {elapsed_time:.2f} seconds")
 
         if epoch % 100 == 0:
             final_output_image = output_Q.detach().cpu().numpy()[0][0]
