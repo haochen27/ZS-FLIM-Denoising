@@ -12,7 +12,6 @@ from PIL import Image
 import matplotlib.pyplot as plt
 import os
 import numpy as np
-from deconv import rl_deconvolution
 import time
 
 def train_model(epochs, batch_size, lr, root, noise_levels, types):
@@ -140,7 +139,7 @@ def ZS_FLIM_train_model(epochs, batch_size, lr, root, types, num_augmentations,a
             mse_loss = creterion(output_A,outputs_intensity)
             tv_loss_value = tv_loss(output_I)+tv_loss(output_Q)
             content_loss = creterion(output_Q, imageQ) + creterion(output_I, imageI)
-            loss =  alpha*content_loss_scale*content_loss + alpha*1e-4*ssim_loss + alpha*0.5e-6*tv_loss_value 
+            loss =  alpha*content_loss_scale*content_loss + alpha*1e-4*ssim_loss + alpha*0.5e-6*tv_loss_value + mse_loss
             loss.backward() 
             optimizer.step()
 
