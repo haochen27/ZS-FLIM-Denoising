@@ -132,44 +132,6 @@ python main.py --test \
 | `--FLIM` | flag | False | Enable zero-shot training for FLIM |
 | `--alpha` | float | 3e-3 | Weight parameter for loss function |
 
-## Model Architecture
-
-Our model is based on a dual-encoder U-Net architecture:
-
-1. **Pre-trained Intensity Model**: A U-Net trained on general fluorescence microscopy data to denoise intensity images
-2. **Dual-Encoder FLIM Network**: 
-   - Separate encoder paths for processing g and s channels
-   - Three specialized decoders:
-     - Two channel-specific decoders for reconstructing g·I and s·I
-     - A fusion decoder that produces I by leveraging features from both encoder pathways
-
-## Loss Function
-
-Our comprehensive joint loss function addresses multiple aspects of FLIM signal fidelity:
-
-```
-L = Lintensity + λ1*Lfidelity + λ2*Lstructure + λ3*LTV
-```
-
-Where:
-- **Lintensity**: Aligns predicted intensity with pre-trained denoising output
-- **Lfidelity**: Ensures consistency between inputs and reconstructions 
-- **Lstructure**: Maintains structural coherence
-- **LTV**: Reduces noise in uniform areas while preserving sharp edges
-
-## Citation
-
-If you use this code for your research, please cite the original paper:
-
-```
-@article{chen2023zero,
-  title={Zero-Shot Denoising for Fluorescence Lifetime Imaging Microscopy with Intensity-Guided Learning},
-  author={Chen, Hao and Najera, Julian and Geresu, Dagmawit and Datta, Meenal and Smith, Cody and Howard, Scott},
-  journal={},
-  year={2023}
-}
-```
-
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
