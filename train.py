@@ -10,6 +10,7 @@ from torchmetrics.image import PeakSignalNoiseRatio, StructuralSimilarityIndexMe
 from model import N2V_Unet, UNetSharedEncoder
 from dataloader import img_loader, img_loader_FLIM
 from tqdm import tqdm
+import tifffile as tiff
 
 def train_model(epochs, batch_size, lr, root, noise_levels, types):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -182,23 +183,37 @@ def train_FLIM_model(config):
     
 
 def save_images(root, output_Q, imageQ, output_I, imageI, output_A, imageA, outputs_intensity):
-    final_output_image = output_Q.detach().cpu().numpy()[0][0]
-    final_input_image = imageQ.detach().cpu().numpy()[0][0]
-    final_output_image2 = output_I.detach().cpu().numpy()[0][0]
-    final_input_image2 = imageI.detach().cpu().numpy()[0][0]
-    final_output_image3 = output_A.detach().cpu().numpy()[0][0]
-    final_input_image3 = imageA.detach().cpu().numpy()[0][0]
-    outputs_intensity = outputs_intensity.detach().cpu().numpy()[0][0]
+    """
+    Save denoised FLIM images directly as TIFF files, along with lifetime calculation.
+    """
+    # Convert tensors to numpy
+    final_output_Q = output_Q.detach().cpu().numpy()[0][0]
+    final_output_I = output_I.detach().cpu().numpy()[0][0]
+    final_output_A = output_A.detach().cpu().numpy()[0][0]
 
-    if not os.path.exists(root):
-        os.makedirs(root)
+    input_image_A = imageA.detach().cpu().numpy()[0][0]
+    input_image_I = imageI.detach().cpu().numpy()[0][0]
+    input_image_Q = imageQ.detach().cpu().numpy()[0][0]
 
-    np.save(os.path.join(root, 'Qoutput.npy'), final_output_image)
-    np.save(os.path.join(root, 'Qinput.npy'), final_input_image)
-    np.save(os.path.join(root, 'Ioutput.npy'), final_output_image2)
-    np.save(os.path.join(root, 'Iinput.npy'), final_input_image2)
-    np.save(os.path.join(root, 'Aoutput.npy'), final_output_image3)
-    np.save(os.path.join(root, 'Ainput.npy'), final_input_image3)
-    np.save(os.path.join(root, 'intensityoutput.npy'), outputs_intensity)
+    # Create output directory
+    output_dir = os.path.join(root)
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # Avoid division by zero
+    epsilon = 1e-11
 
+    # Compute G and S for outputs
+    G_output = final_output_I / (final_output_A + epsilon)
+    S_output = final_output_Q / (final_output_A + epsilon)
+    image_data_A_output = outputs_intensity.detach().cpu().numpy()[0][0]
+
+    
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Save outputs as .tif images
+    tiff.imwrite(os.path.join(output_dir, 'imageG.tif'), G_output.astype(np.float32))
+    tiff.imwrite(os.path.join(output_dir, 'imageS.tif'), S_output.astype(np.float32))
+    tiff.imwrite(os.path.join(output_dir, 'imageI.tif'), image_data_A_output.astype(np.float32))
+
+    print(f"Saved outputs for {output_dir}")
     
