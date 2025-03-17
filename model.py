@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 class DoubleConv(nn.Module):
+    """Helper module: two consecutive conv layers with ReLU activations."""
     def __init__(self, in_channels, out_channels):
         super(DoubleConv, self).__init__()
         self.double_conv = nn.Sequential(
@@ -13,88 +14,101 @@ class DoubleConv(nn.Module):
             nn.BatchNorm2d(out_channels),
             nn.LeakyReLU(0.01, inplace=True)
         )
-        
     def forward(self, x):
         return self.double_conv(x)
-class UNet_SharedEncoder(nn.Module):
-    def __init__(self, in_channels, out_channels):
-        super(UNet_SharedEncoder, self).__init__()
-        
-        # Separate encoders for both inputs
-        # Encoder for x1
-        self.encoder1_1 = DoubleConv(in_channels, 32)
-        self.pool1_1 = nn.MaxPool2d(2)
-        self.encoder1_2 = DoubleConv(32, 64)
-        self.pool1_2 = nn.MaxPool2d(2)
+    
 
-        # Encoder for x2
-        self.encoder2_1 = DoubleConv(in_channels, 32)
+class UpBlock(nn.Module):
+    """
+    Upsampling block using transposed convolution, followed by concatenation
+    of skip connections and a double convolution.
+    """
+    def __init__(self, in_channels, skip_channels, out_channels):
+        super(UpBlock, self).__init__()
+        self.upconv = nn.ConvTranspose2d(in_channels, out_channels, kernel_size=2, stride=2)
+        self.double_conv = DoubleConv(out_channels + skip_channels, out_channels)
+    
+    def forward(self, x, *skips):
+        x = self.upconv(x)
+        # Concatenate upsampled feature map with provided skip connections
+        x = torch.cat((x, ) + skips, dim=1)
+        return self.double_conv(x)
+    
+
+# -----------------------------------------------------------------------------
+# Improved UNet with Shared Encoder for FLIM Training
+# -----------------------------------------------------------------------------
+
+class UNetSharedEncoder(nn.Module):
+    """
+    U-Net style network with two separate encoders (for x1 and x2) and three decoders:
+      - Two decoders for reconstructing the individual inputs.
+      - One combined decoder that fuses features from both encoders.
+    """
+    def __init__(self, in_channels=1, base_channels=32, out_channels=1):
+        super(UNetSharedEncoder, self).__init__()
+        # Encoder for first input (x1)
+        self.enc1_1 = DoubleConv(in_channels, base_channels)
+        self.pool1_1 = nn.MaxPool2d(2)
+        self.enc1_2 = DoubleConv(base_channels, base_channels * 2)
+        self.pool1_2 = nn.MaxPool2d(2)
+        
+        # Encoder for second input (x2)
+        self.enc2_1 = DoubleConv(in_channels, base_channels)
         self.pool2_1 = nn.MaxPool2d(2)
-        self.encoder2_2 = DoubleConv(32, 64)
+        self.enc2_2 = DoubleConv(base_channels, base_channels * 2)
         self.pool2_2 = nn.MaxPool2d(2)
         
-        # Two-level U-Net style decoders for the first and second input
-        # Decoder for out1
-        self.upconv1_1 = nn.ConvTranspose2d(64, 32, kernel_size=2, stride=2)
-        self.decoder1_1 = DoubleConv(96, 32)
-        self.upconv1_2 = nn.ConvTranspose2d(32, 32, kernel_size=2, stride=2)
-        self.decoder1_2 = DoubleConv(64, 32)
-        self.final_conv1 = nn.Conv2d(32, out_channels, kernel_size=1)
-
-        # Decoder for out2
-        self.upconv2_1 = nn.ConvTranspose2d(64, 32, kernel_size=2, stride=2)
-        self.decoder2_1 = DoubleConv(96, 32)
-        self.upconv2_2 = nn.ConvTranspose2d(32, 32, kernel_size=2, stride=2)
-        self.decoder2_2 = DoubleConv(64, 32)
-        self.final_conv2 = nn.Conv2d(32, out_channels, kernel_size=1)
-
-        # New decoder for out3, using features from both enc1 and enc2 paths
-        self.upconv3_1 = nn.ConvTranspose2d(128, 64, kernel_size=2, stride=2)  # Upsampling combined features
-        self.decoder3_1 = DoubleConv(192, 64)
-        self.upconv3_2 = nn.ConvTranspose2d(64, 32, kernel_size=2, stride=2)   # Second level upsampling
-        self.decoder3_2 = DoubleConv(96, 32)
-        self.final_conv3 = nn.Conv2d(32, out_channels, kernel_size=1)
-
+        # Decoder for x1 branch
+        self.up1_1 = UpBlock(base_channels * 2, skip_channels=base_channels * 2, out_channels=base_channels)
+        self.up1_2 = UpBlock(base_channels, skip_channels=base_channels, out_channels=base_channels)
+        self.final_conv1 = nn.Conv2d(base_channels, out_channels, kernel_size=1)
+        
+        # Decoder for x2 branch
+        self.up2_1 = UpBlock(base_channels * 2, skip_channels=base_channels * 2, out_channels=base_channels)
+        self.up2_2 = UpBlock(base_channels, skip_channels=base_channels, out_channels=base_channels)
+        self.final_conv2 = nn.Conv2d(base_channels, out_channels, kernel_size=1)
+        
+        # Combined decoder (fusing both encoder streams)
+        # The deepest features from both encoders are concatenated.
+        self.up3_1 = UpBlock(base_channels * 4, skip_channels=base_channels * 4, out_channels=base_channels * 2)
+        self.up3_2 = UpBlock(base_channels * 2, skip_channels=base_channels * 2, out_channels=base_channels)
+        self.final_conv3 = nn.Conv2d(base_channels, out_channels, kernel_size=1)
+    
     def forward(self, x1, x2):
-        # Encoding path for x1
-        enc1_1 = self.encoder1_1(x1)                     # Output: [batch_size, 32, 256, 256]
-        enc1_pooled1 = self.pool1_1(enc1_1)              # Output: [batch_size, 32, 128, 128]
-        enc1_2 = self.encoder1_2(enc1_pooled1)           # Output: [batch_size, 64, 128, 128]
-        enc1_pooled2 = self.pool1_2(enc1_2)              # Output: [batch_size, 64, 64, 64]
-
-        # Encoding path for x2
-        enc2_1 = self.encoder2_1(x2)                     # Output: [batch_size, 32, 256, 256]
-        enc2_pooled1 = self.pool2_1(enc2_1)              # Output: [batch_size, 32, 128, 128]
-        enc2_2 = self.encoder2_2(enc2_pooled1)           # Output: [batch_size, 64, 128, 128]
-        enc2_pooled2 = self.pool2_2(enc2_2)              # Output: [batch_size, 64, 64, 64]
-
-        # U-Net style decoding for the first input (out1)
-        upconv1 = self.upconv1_1(enc1_pooled2)            # Output: [batch_size, 32, 128, 128]
-        dec1 = self.decoder1_1(torch.cat([upconv1, enc1_2], dim=1)) # Skip connection with enc1_2
-        upconv1 = self.upconv1_2(dec1)                    # Output: [batch_size, 32, 256, 256]
-        dec1 = self.decoder1_2(torch.cat([upconv1, enc1_1], dim=1)) # Skip connection with enc1_1
-        out1 = self.final_conv1(dec1)                     # Output: [batch_size, out_channels, 256, 256]
-
-        # U-Net style decoding for the second input (out2)
-        upconv2 = self.upconv2_1(enc2_pooled2)            # Output: [batch_size, 32, 128, 128]
-        dec2 = self.decoder2_1(torch.cat([upconv2, enc2_2], dim=1)) # Skip connection with enc2_2
-        upconv2 = self.upconv2_2(dec2)                    # Output: [batch_size, 32, 256, 256]
-        dec2 = self.decoder2_2(torch.cat([upconv2, enc2_1], dim=1)) # Skip connection with enc2_1
-        out2 = self.final_conv2(dec2)                     # Output: [batch_size, out_channels, 256, 256]
-
-        # New U-Net style decoding for the combined features (out3)
-        combined_features = torch.cat([enc1_pooled2, enc2_pooled2], dim=1)  # Combine the deepest features [batch_size, 128, 64, 64]
-        upconv3 = self.upconv3_1(combined_features)                         # Upsample to [batch_size, 64, 128, 128]
-        dec3 = self.decoder3_1(torch.cat([upconv3, enc1_2, enc2_2], dim=1)) # Skip connection with enc1_2 and enc2_2
-        upconv3 = self.upconv3_2(dec3)                                      # Upsample to [batch_size, 32, 256, 256]
-        dec3 = self.decoder3_2(torch.cat([upconv3, enc1_1, enc2_1], dim=1)) # Skip connection with enc1_1 and enc2_1
-        out3 = self.final_conv3(dec3)                                       # Output: [batch_size, out_channels, 256, 256]
-
+        # ---- Encoding for x1 ----
+        enc1_1 = self.enc1_1(x1)                    # [B, base_channels, H, W]
+        enc1_2 = self.enc1_2(self.pool1_1(enc1_1))     # [B, base_channels*2, H/2, W/2]
+        pooled1 = self.pool1_2(enc1_2)                # [B, base_channels*2, H/4, W/4]
+        
+        # ---- Encoding for x2 ----
+        enc2_1 = self.enc2_1(x2)                    # [B, base_channels, H, W]
+        enc2_2 = self.enc2_2(self.pool2_1(enc2_1))     # [B, base_channels*2, H/2, W/2]
+        pooled2 = self.pool2_2(enc2_2)                # [B, base_channels*2, H/4, W/4]
+        
+        # ---- Decoder for x1 branch ----
+        dec1_1 = self.up1_1(pooled1, enc1_2)
+        dec1_2 = self.up1_2(dec1_1, enc1_1)
+        out1 = self.final_conv1(dec1_2)
+        
+        # ---- Decoder for x2 branch ----
+        dec2_1 = self.up2_1(pooled2, enc2_2)
+        dec2_2 = self.up2_2(dec2_1, enc2_1)
+        out2 = self.final_conv2(dec2_2)
+        
+        # ---- Combined Decoder ----
+        # Fuse deepest features from both encoders.
+        combined = torch.cat([pooled1, pooled2], dim=1)  # [B, base_channels*4, H/4, W/4]
+        dec3_1 = self.up3_1(combined, enc1_2, enc2_2)
+        dec3_2 = self.up3_2(dec3_1, enc1_1, enc2_1)
+        out3 = self.final_conv3(dec3_2)
+        
         return out1, out2, out3
-
+ 
 class N2V_Unet(nn.Module):
     def __init__(self, in_channels, out_channels):
         super(N2V_Unet, self).__init__()
+        # Encoder
         self.encoder1 = DoubleConv(in_channels, 32)
         self.pool1 = nn.MaxPool2d(2)
         self.encoder2 = DoubleConv(32, 64)
@@ -103,6 +117,7 @@ class N2V_Unet(nn.Module):
         self.pool3 = nn.MaxPool2d(2)
         self.bottleneck = DoubleConv(128, 256)
 
+        # Decoder with up-convolutions and skip connections
         self.upconv3 = nn.ConvTranspose2d(256, 128, kernel_size=2, stride=2)
         self.decoder3 = DoubleConv(256, 128)
         self.upconv2 = nn.ConvTranspose2d(128, 64, kernel_size=2, stride=2)
@@ -128,8 +143,9 @@ class N2V_Unet(nn.Module):
         dec1 = self.decoder1(torch.cat([dec1, enc1], dim=1))
 
         output = self.final_conv(dec1)
-
         return output
+
+# (Optional) Residual and SE blocks can be integrated into your network if desired.
 class ResidualBlock(nn.Module):
     def __init__(self, in_channels, out_channels):
         super(ResidualBlock, self).__init__()

@@ -74,10 +74,15 @@ class DNdataset(TorchDataset):
                         current_img_path = os.path.join(img_path, str(fov))
                         gt_img = os.path.join(gt_path, str(fov), 'avg50.png')
                         if self.train:
-                            img_name = random.choice(sorted(os.listdir(current_img_path))[:50])
-                            images.append(os.path.join(current_img_path, img_name))
-                            gt_images.append(gt_img)
-                            train_image_count += 1
+                            # Load a fixed number of images per fov, for example 5
+                            available_imgs = sorted(os.listdir(current_img_path))[:50]
+                            num_to_sample = min(5, len(available_imgs))
+                            sampled_imgs = random.sample(available_imgs, num_to_sample)
+                            for img_name in sampled_imgs:
+                                images.append(os.path.join(current_img_path, img_name))
+                                gt_images.append(gt_img)
+                                train_image_count += 1
+
                         else:
                             for img_name in sorted(os.listdir(current_img_path))[:50]:
                                 images.append(os.path.join(current_img_path, img_name))
